@@ -1,0 +1,10 @@
+# Ejecutables y cache de Nim
+*.exe
+*.out
+nimcache/
+*.pdb
+uai_quest
+
+# Sistema
+Thumbs.db
+.DS_Store

@@ -108,5 +108,3 @@ Se respetaron las mecánicas pedidas y se **ampliaron** con ataques extra cohere
 
 - `uai_quest.nim` — el juego completo.
 - `README.md` — este documento.
-
-> Nota: no se pudo compilar en el entorno de preparación (sin acceso para instalar Nim/naylib), así que el código está escrito cuidadosamente contra la API estándar de naylib. Si al compilar aparece algún ajuste menor de versión, suele ser un nombre de constante/tecla; avísame y lo corrijo.

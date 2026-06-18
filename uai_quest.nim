@@ -93,7 +93,8 @@ let
 #  Sprites pixel-art (8-bit) dibujados con rectangulos, sin archivos externos.
 #  Un humanoide generico recoloreable + iconos. [IMPERATIVO]
 # ----------------------------------------------------------------------------
-const Humanoide = [
+# Pelo corto (masculino / enemigos)
+const HumCorto = [
   "  HHHH  ",
   " HHHHHH ",
   " HFFFFH ",
@@ -107,13 +108,45 @@ const Humanoide = [
   " OO  OO "
 ]
 
-proc drawHumanoide(ox, oy, px: int; pelo, piel, camisa, pantalon: Color) =
+# Pelo largo (femenino)
+const HumLargo = [
+  "  HHHH  ",
+  " HHHHHH ",
+  " HFFFFH ",
+  " HEFFEH ",
+  " HFFFFH ",
+  " HFFFFH ",
+  " HSSSSH ",
+  "SSSSSSSS",
+  " SSSSSS ",
+  "  PPPP  ",
+  " OO  OO "
+]
+
+# Profesor: igual que corto pero con una veta de pelo BLANCO ('W') a la derecha
+const HumProf = [
+  "  HHHW  ",
+  " HHHHHW ",
+  " HFFFFW ",
+  " FEFFEF ",
+  " FFFFFF ",
+  "  FFFF  ",
+  " SSSSSS ",
+  "SSSSSSSS",
+  " SSSSSS ",
+  "  PPPP  ",
+  " OO  OO "
+]
+
+proc drawSprite(art: openArray[string]; ox, oy, px: int;
+                pelo, piel, camisa, pantalon: Color) =
   let pal = {
     'H': pelo, 'F': piel, 'E': NegroNES,
-    'S': camisa, 'P': pantalon, 'O': rgb(40, 40, 40)
+    'S': camisa, 'P': pantalon, 'O': rgb(40, 40, 40),
+    'W': rgb(235, 235, 235)            # veta de pelo blanco
   }.toTable
-  for r in 0 ..< Humanoide.len:
-    let fila = Humanoide[r]
+  for r in 0 ..< art.len:
+    let fila = art[r]
     for c in 0 ..< fila.len:
       let ch = fila[c]
       if ch != ' ' and pal.hasKey(ch):
@@ -176,7 +209,7 @@ type
     pelo, camisa: Color
 
   GameState = enum
-    gsMenu, gsCrear, gsIntro, gsExplorar, gsBatalla,
+    gsMenu, gsCrear, gsNivelSel, gsIntro, gsExplorar, gsBatalla,
     gsRecompensa, gsCodex, gsVictoria, gsDerrota
 
   Nivel = object
@@ -200,6 +233,7 @@ type
     introLinea: int
     nombreTmp: string
     generoSel: int
+    nivelSel: int            # cursor de la pantalla de seleccion de nivel
     estadoPrevio: GameState  # para volver desde el Codex
     flashTimer: float
     parpadeo: float
@@ -217,13 +251,14 @@ method recibirDano(e: Entity; dmg: int): string {.base.} =
     e.ignorarProximo = false
     return e.nombre & " IGNORA el golpe (Abstraccion)!"
   var d = dmg
+  var bloqueado = 0
   if e.escudo > 0:
-    let absorbido = min(e.escudo, d)
-    e.escudo -= absorbido
-    d -= absorbido
-    if absorbido > 0:
-      return e.nombre & " bloquea " & $absorbido & " con escudo (-" & $d & " HP)"
-  e.vida = max(0, e.vida - d)
+    bloqueado = min(e.escudo, d)
+    e.escudo -= bloqueado
+    d -= bloqueado
+  e.vida = max(0, e.vida - d)        # el dano sobrante SIEMPRE pasa a la vida
+  if bloqueado > 0:
+    return e.nombre & " bloquea " & $bloqueado & " y recibe " & $d & " de dano"
   return e.nombre & " recibe " & $d & " de dano"
 
 proc curar(e: Entity; cantidad: int) =
@@ -478,9 +513,11 @@ proc usarSkillEnemigo(g: Game; s: Skill): seq[string] =
     let r = rand(1..100)
     dmg = (if r <= 50: 7 elif r <= 80: 12 else: 17)
   of efEncapsulamiento:
-    e.escudo += 12
+    # No apila escudo infinito: solo se protege si esta descubierto (tope 10).
+    if e.escudo <= 0:
+      e.escudo = 10
+      result.add "   (se cubre con 10 de escudo)"
     dmg = 6
-    result.add "   (gana 12 de escudo)"
   of efHerencia:
     dmg = (if p.ultimaSkill != nil: max(p.ultimaSkill.danoBase, 7) else: 7)
     result.add "   (copia tu ultima tecnica)"
@@ -490,7 +527,7 @@ proc usarSkillEnemigo(g: Game; s: Skill): seq[string] =
   of efExamen: dmg = 16
   of efRecursionInf:
     e.contador += 1
-    dmg = 6 + 4 * e.contador
+    dmg = min(6 + 3 * e.contador, 16)   # crece pero con tope (sin one-shot)
     result.add "   (profundidad " & $e.contador & ", el stack crece!)"
   of efDeadline:
     # Atraviesa el escudo (dano puro), pero respeta Abstraccion.
@@ -520,19 +557,19 @@ proc crearEnemigos(): seq[Enemy] =
   result = @[]
   result.add Enemy(
     nombre: "C", descripcion: "el lenguaje de sistemas", recompensa: "C",
-    vidaMax: 50, vida: 50, pelo: rgb(120, 30, 30), camisa: RojoC,
+    vidaMax: 42, vida: 42, pelo: rgb(120, 30, 30), camisa: RojoC,
     skills: @[skillsC()[0], skillsC()[1], skillsC()[3]])
   result.add Enemy(
     nombre: "Java", descripcion: "la maquina virtual", recompensa: "Java",
-    vidaMax: 72, vida: 72, pelo: rgb(150, 90, 20), camisa: NaranjaJv,
+    vidaMax: 55, vida: 55, pelo: rgb(150, 90, 20), camisa: NaranjaJv,
     skills: @[skillsJava()[1], skillsJava()[2], skillsJava()[0]])
   result.add Enemy(
     nombre: "Haskell", descripcion: "puro y perezoso", recompensa: "Haskell",
-    vidaMax: 92, vida: 92, pelo: rgb(90, 40, 130), camisa: MoradoHk,
+    vidaMax: 70, vida: 70, pelo: rgb(90, 40, 130), camisa: MoradoHk,
     skills: @[skillsHaskell()[0], skillsHaskell()[1], skillsHaskell()[3]])
   result.add Enemy(
     nombre: "Prof. Matias Greco", descripcion: "jefe final del curso",
-    recompensa: "", vidaMax: 150, vida: 150,
+    recompensa: "", vidaMax: 115, vida: 115,
     pelo: rgb(60, 50, 50), camisa: GrisProf, skills: skillsProfesor())
 
 proc crearNiveles(): seq[Nivel] =
@@ -575,7 +612,8 @@ proc iniciarJuego(g: Game) =
   g.niveles = crearNiveles()
   g.nivelActual = 0
   g.introLinea = 0
-  g.estado = gsIntro
+  g.nivelSel = 0
+  g.estado = gsNivelSel
 
 proc entrarNivel(g: Game) =
   g.player.x = 80
@@ -608,6 +646,17 @@ proc otorgarArsenal(g: Game; lang: string) =
   for s in nuevas:
     if s.nombre notin existentes:
       g.player.skills.add s
+
+# Empezar en un nivel elegido: otorga arsenales de los jefes previos y ajusta vida.
+proc comenzarEnNivel(g: Game; idx: int) =
+  g.nivelActual = idx
+  for lvl in 1 ..< idx:
+    let niv = g.niveles[lvl]
+    if niv.tieneJefe:
+      otorgarArsenal(g, g.enemigos[niv.jefeIdx].recompensa)
+      g.player.vidaMax += 20
+  g.player.vida = g.player.vidaMax
+  entrarNivel(g)
 
 # ----------------------------------------------------------------------------
 #  ENTRADA: helper de teclas numericas
@@ -648,6 +697,13 @@ proc updateCrear(g: Game) =
   if isKeyPressed(Enter) and g.nombreTmp.strip().len > 0:
     g.nombreTmp = g.nombreTmp.strip()
     iniciarJuego(g)
+
+proc updateNivelSel(g: Game) =
+  let n = g.niveles.len
+  if isKeyPressed(Up): g.nivelSel = (g.nivelSel + n - 1) mod n
+  if isKeyPressed(Down): g.nivelSel = (g.nivelSel + 1) mod n
+  if isKeyPressed(Enter) or isKeyPressed(Space):
+    comenzarEnNivel(g, g.nivelSel)
 
 proc updateIntro(g: Game) =
   if isKeyPressed(Enter) or isKeyPressed(Space):
@@ -800,6 +856,45 @@ proc drawCrear(g: Game) =
   dtextC("ENTER para iniciar tu aventura", AnchoPantalla div 2, 410, 20,
          DoradoUAI)
 
+# Avatar del jugador segun su genero (sprite y colores distintos).
+proc drawJugador(p: Player; ox, oy, px: int) =
+  let piel = rgb(245, 210, 170)
+  case p.genero
+  of genMasc:
+    drawSprite(HumCorto, ox, oy, px, rgb(70, 45, 25), piel, CelesteUAI, AzulUAI)
+  of genFem:
+    drawSprite(HumLargo, ox, oy, px, rgb(95, 50, 30), piel,
+               rgb(210, 70, 140), rgb(120, 40, 90))
+  of genOtro:
+    drawSprite(HumCorto, ox, oy, px, rgb(40, 160, 150), piel,
+               VerdePiso, rgb(40, 90, 60))
+
+# Avatar del enemigo (el profesor lleva la veta de pelo blanco).
+proc drawEnemigo(e: Enemy; ox, oy, px: int) =
+  let piel = rgb(220, 200, 180)
+  if e.nombre.startsWith("Prof"):
+    drawSprite(HumProf, ox, oy, px, e.pelo, piel, e.camisa, NegroNES)
+  else:
+    drawSprite(HumCorto, ox, oy, px, e.pelo, piel, e.camisa, NegroNES)
+
+proc drawNivelSel(g: Game) =
+  clearBackground(AzulUAI)
+  dtextC("SELECCIONA EL NIVEL", AnchoPantalla div 2, 40, 30, DoradoUAI)
+  dtextC("Empezar mas adelante te da las habilidades de los jefes previos.",
+         AnchoPantalla div 2, 80, 14, CremaTxt)
+  for i in 0 ..< g.niveles.len:
+    let y = 120 + i * 56
+    let sel = (i == g.nivelSel)
+    box(120, y, AnchoPantalla - 240, 48, (if sel: CelesteUAI else: rgb(20, 25, 45)))
+    boxLines(120, y, AnchoPantalla - 240, 48, CremaTxt)
+    dtext((if sel: "> " else: "  ") & "Mapa " & $(i + 1) & ": " & g.niveles[i].nombre,
+          140, y + 8, 18, (if sel: NegroNES else: CremaTxt))
+    let extra = (if g.niveles[i].tieneJefe: "Jefe en este mapa"
+                 else: "Introduccion (sin jefe)")
+    dtext(extra, 140, y + 28, 13, (if sel: NegroNES else: GrisProf))
+  dtextC("FLECHAS para elegir  -  ENTER para comenzar",
+         AnchoPantalla div 2, AltoPantalla - 28, 16, DoradoUAI)
+
 proc drawEscenaExplorar(g: Game) =
   let niv = g.niveles[g.nivelActual]
   fondoEstrellado(g, niv.fondo)
@@ -819,8 +914,7 @@ proc drawEscenaExplorar(g: Game) =
         PisoY - 116, 14, NegroNES)
   # Jugador
   let p = g.player
-  drawHumanoide(p.x.int, p.y.int, 6, rgb(60, 40, 30), rgb(245, 210, 170),
-                CelesteUAI, AzulUAI)
+  drawJugador(p, p.x.int, p.y.int, 6)
   # HUD
   barraVida(20, 40, 220, p.vida, p.vidaMax, rgb(220, 60, 60), p.nombre)
   dtext("Mover: FLECHAS / A-D    Saltar: ESPACIO    Habilidades: C",
@@ -847,12 +941,11 @@ proc drawBatalla(g: Game) =
   let e = g.enemigo
   let p = g.player
   # Enemigo (arriba derecha)
-  drawHumanoide(560, 70, 9, e.pelo, rgb(220, 200, 180), e.camisa, NegroNES)
+  drawEnemigo(e, 560, 70, 9)
   dtextC(e.nombre, 600, 60, 18, CremaTxt)
   barraVida(420, 250, 330, e.vida, e.vidaMax, e.camisa, e.nombre)
   # Jugador (abajo izquierda)
-  drawHumanoide(120, 230, 8, rgb(60, 40, 30), rgb(245, 210, 170),
-                CelesteUAI, AzulUAI)
+  drawJugador(p, 120, 230, 8)
   barraVida(40, 220, 300, p.vida, p.vidaMax, rgb(220, 60, 60), p.nombre)
   if p.escudo > 0:
     dtext("Escudo: " & $p.escudo, 40, 240, 14, CelesteUAI)
@@ -959,6 +1052,7 @@ proc main() =
     case g.estado
     of gsMenu: updateMenu(g)
     of gsCrear: updateCrear(g)
+    of gsNivelSel: updateNivelSel(g)
     of gsIntro: updateIntro(g)
     of gsExplorar: updateExplorar(g, dt)
     of gsBatalla: updateBatalla(g, dt)
@@ -971,6 +1065,7 @@ proc main() =
     case g.estado
     of gsMenu: drawMenu(g)
     of gsCrear: drawCrear(g)
+    of gsNivelSel: drawNivelSel(g)
     of gsIntro: drawIntro(g)
     of gsExplorar: drawEscenaExplorar(g)
     of gsBatalla: drawBatalla(g)
